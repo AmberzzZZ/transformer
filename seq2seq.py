@@ -9,7 +9,7 @@ def seq2seq_teacher(num_encoder_tokens, num_decoder_tokens, latent_dim):
     # encoder
     encoder_inputs = Input(shape=(None, num_encoder_tokens))   # [timestep, emb_dim]
     encoder = LSTM(latent_dim, return_state=True)
-    encoder_outputs, state_h, state_c = encoder(encoder_inputs)
+    _, state_h, state_c = encoder(encoder_inputs)
     encoder_states = [state_h, state_c]
 
     # decoder: use `encoder_states` as initial state.
@@ -31,7 +31,7 @@ def seq2seq_reinjection(num_encoder_tokens, num_decoder_tokens, latent_dim):
     # encoder
     encoder_inputs = Input(shape=(None, num_encoder_tokens))   # [timestep, emb_dim]
     encoder = LSTM(latent_dim, return_state=True)
-    encoder_outputs, state_h, state_c = encoder(encoder_inputs)
+    _, state_h, state_c = encoder(encoder_inputs)
     states = [state_h, state_c]
 
     # decoder: use `encoder_states` as initial state.
@@ -62,7 +62,7 @@ def inference_seq(input_seq, num_encoder_tokens, num_decoder_tokens, latent_dim)
     # encoder model
     encoder_inputs = Input(shape=(None, num_encoder_tokens))   # [timestep, emb_dim]
     encoder = LSTM(latent_dim, return_state=True)
-    encoder_outputs, state_h, state_c = encoder(encoder_inputs)
+    _, state_h, state_c = encoder(encoder_inputs)
     encoder_states = [state_h, state_c]
     encoder_model = Model(encoder_inputs, encoder_states)
     encoder_model.load_weights("seq2seq.h5", by_name=True)
