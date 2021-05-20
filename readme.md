@@ -148,7 +148,6 @@
     self-attention: single input, x=q=k=v
 
 
-    
 
 
 
@@ -157,21 +156,41 @@
     
     官方repo: https://github.com/google-research/vision_transformer
 
-    task: supervised classification task
+    task: supervised classification
 
-    inputs: 
-        * image patch sequence + trainable linear projection
+    inputs: 将图片切成不重叠的16x16块，然后flatten，然后用learnable的线性层降维，然后添加cls token，然后加上PE
+        * image patch sequence & trainable linear projection
         * PE: trainable 1d embedding
         * x0: trainable pretended 1d embedding
         * [x0, patch_embeddings, ] + PEs
 
-    model: 
+    model: transformer encoder
         * patch_size
         * hidden_size: through all
+        * MSA layer: 没有mask，最简单的版本
+
+    MLP head: 
+
+
+    GeLU:
+        Gaussian error linear unit: x * P(X <= x), where P(X) ~ N(0, 1)
+        if approx:
+            y = 0.5 * x * (1 + tanh(sqrt(2 / pi) * (x + 0.044715 * x^3)))
+        else:
+            y = 0.5 * x * (1 + erf(x / sqrt(2)))
+
+    LN:
+        https://www.geek-book.com/src/docs/keras/keras/keras.io/api/layers/normalization_layers/layer_normalization/index.html
+        trainable的情况下，given inputs [b,(hwd),c]，参数量是2*(hwd)*c，所以用在1D比较正常一点
+
 
     子类继承模型：class ***(keras.Model)
         * init里面定义层不能复用
-        * 
+        * 批量定义的layer list里面每个layer必须在self作用空间下声明
+
+
+
+
 
     
 

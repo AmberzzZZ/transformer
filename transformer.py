@@ -1,4 +1,4 @@
-from keras.layers import Dense, Dropout, Embedding, Input
+from keras.layers import Dropout, Embedding, Input
 from keras_layer_normalization import LayerNormalization
 from keras.models import Model
 import keras.backend as K
@@ -149,7 +149,7 @@ def positional_embedding(seq_len, model_dim):
                 PE[i, j] = np.sin(i / 10000 ** (j / model_dim))
             else:
                 PE[i, j] = np.cos(i / 10000 ** ((j-1) / model_dim))
-    PE = K.constant(PE, dtype=tf.float32)
+    PE = K.constant(np.expand_dims(PE, axis=0))
     return PE
 
 

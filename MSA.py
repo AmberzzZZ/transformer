@@ -1,6 +1,16 @@
-from keras.layers import Input, Dense
+from keras.layers import Input, Dense, Dropout, Activation
 from keras.models import Model
+from keras.activations import relu
 import tensorflow as tf
+import keras.backend as K
+import math
+
+
+def gelu(x, approx=False):
+    if approx:
+        return 0.5 * x * (1 + K.tanh(K.sqrt(K.constant(2./math.pi)) * (x + 0.044715 * K.pow(x, 3))))
+    else:
+        return 0.5 * x * (1. + tf.math.erf(x / K.sqrt(K.constant(2.))))
 
 
 # MSA layer
@@ -61,15 +71,25 @@ class MultiHeadAttention(Model):
 
 # FFN layer
 class FeedForwardNetwork(Model):
-    def __init__(self, dff_size, model_size):
+    def __init__(self, dff_size, model_size, activation=relu, drop_rate=0.):
         super(FeedForwardNetwork, self).__init__()
-        self.dense1 = Dense(dff_size, activation="relu")
+        self.dense1 = Dense(dff_size, activation=activation)   # relu/gelu
         self.dense2 = Dense(model_size)
+        if drop_rate:
+            self.drop1 = Dropout(drop_rate)
+            self.drop2 = Dropout(drop_rate)
+        self.act = Activation(activation)
         self.model_size = model_size
+        self.drop_rate = drop_rate
 
     def call(self, x):
         x = self.dense1(x)
+        x = self.act(x)
+        if self.drop_rate:
+            x = self.drop1(x)
         x = self.dense2(x)
+        if self.drop_rate:
+            x = self.drop2(x)
         return x
 
     def compute_output_shape(self, input_shape):
