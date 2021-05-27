@@ -15,7 +15,7 @@ def gelu(x, approx=False):
 
 # MSA layer
 class MultiHeadAttention(Model):
-    def __init__(self, model_size, num_heads, **kwargs):
+    def __init__(self, model_size, num_heads, attn_drop=0., ffn_drop=0., **kwargs):
         super(MultiHeadAttention, self).__init__(**kwargs)
 
         self.model_size = model_size
@@ -25,6 +25,8 @@ class MultiHeadAttention(Model):
         self.WK = Dense(model_size, name="dense_key")
         self.WV = Dense(model_size, name="dense_value")
         self.dense = Dense(model_size)
+        self.msa_drop = Dropout(attn_drop)
+        self.mlp_drop = Dropout(ffn_drop)
 
     def call(self, inputs, mask=None):
         # query: (batch, maxlen, model_size)
@@ -53,14 +55,20 @@ class MultiHeadAttention(Model):
         dk = tf.cast(query.shape[-1], tf.float32)
         score = matmul_qk / tf.math.sqrt(dk)
 
+        if isinstance(mask, list):
+            mask = mask[0]
         if mask is not None:
             score += (1 - mask) * -1e9     # add mask=0 points with -inf, results in 0 in softmax
 
+        # softmax & dropout
         alpha = tf.nn.softmax(score)
+        alpha = self.msa_drop(alpha)
+
         context = tf.matmul(alpha, value)
         context = tf.transpose(context, perm=[0, 2, 1, 3])
         context = tf.reshape(context, (batch_size, -1, self.model_size))
         output = self.dense(context)
+        output = self.mlp_drop(output)
 
         return output
 
