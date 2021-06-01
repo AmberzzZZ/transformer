@@ -1,4 +1,5 @@
-from keras.layers import Input, Conv2D, Reshape, Concatenate, add, Dropout, Dense, Lambda, BatchNormalization, ReLU
+from keras.layers import Input, Conv2D, Reshape, Concatenate, add, Dropout, Dense, Lambda, \
+                         BatchNormalization, ReLU, multiply
 from MSA import MultiHeadAttention, FeedForwardNetwork, gelu
 from LayerNormalization import LayerNormalization
 from keras.models import Model
@@ -9,7 +10,7 @@ import tensorflow as tf
 
 def LV_ViT(input_size=224, patch_size=16, emb_dim=384, mlp_dim=1152, out_dim=9,
            num_layers=16, num_heads=6, attn_drop=0., ffn_drop=0., residual_drop=0.1,
-           residual_scale=2., mix_token=False, mix_lam=1., aux_loss=False):
+           residual_scale=2., mix_token=False, aux_loss=False):
 
     inpt = Input((input_size, input_size, 3))
 
@@ -18,16 +19,21 @@ def LV_ViT(input_size=224, patch_size=16, emb_dim=384, mlp_dim=1152, out_dim=9,
     x = ConvBN(x, 64, kernel_size=3, strides=1)
     x = ConvBN(x, 64, kernel_size=3, strides=1)
     x = Conv2D(emb_dim, 8, strides=8, padding='same')(x)
+    N = (input_size//patch_size)
+
+    # mixtoken
+    if mix_token:
+        mix_mask = Input((N,N,1))   # random crop based on beta distribution
+        x = Lambda(mix_tokens)([x, mix_mask])
 
     # cls token
-    N = (input_size//patch_size) * (input_size//patch_size)
-    x = Reshape((N, emb_dim))(x)
+    x = Reshape((N*N, emb_dim))(x)
     tmp = Lambda(lambda x: x[:,0:1,:])(x)   # [b,1,D]
     x0 = Lambda(lambda x: K.zeros_like(x))(tmp)
     x = Concatenate(axis=1)([x0,x])   # [b,N+1,D]
 
     # positional embeddings
-    pe = Lambda(lambda x: tf.tile(positional_embedding(N+1, emb_dim), [tf.shape(x)[0], 1,1]))(x)
+    pe = Lambda(lambda x: tf.tile(positional_embedding(N*N+1, emb_dim), [tf.shape(x)[0], 1,1]))(x)
     x = add([x, pe])   # [b,N+1,D]
     x = Dropout(ffn_drop)(x)
 
@@ -38,17 +44,22 @@ def LV_ViT(input_size=224, patch_size=16, emb_dim=384, mlp_dim=1152, out_dim=9,
     x = LayerNormalization()(x)
 
     # take cls token
-    x = Lambda(lambda x: x[:,0,:])(x)   # [b,D]
-
+    x_cls = Lambda(lambda x: x[:,0,:])(x)   # [b,D]
     if out_dim:
-        x = Dense(out_dim, activation='softmax')(x)
+        x_cls = Dense(out_dim, activation='softmax')(x_cls)
 
-    # # take aux tokens
-    # if aux_loss:
-    #     x_aux = Lambda(lambda x: x[:,1:,:])(x)   # [b,N,D]
-    #     x_aux = Dense(out_dim)(x_aux)   # linear
+    # take aux tokens
+    if aux_loss:
+        x_aux = Lambda(lambda x: x[:,1:,:])(x)   # [b,N,D]
+        if mix_token:
+            x_aux = Reshape((N,N,emb_dim))(x_aux)
+            x_aux = Lambda(mix_tokens)([x_aux, mix_mask])
+            x_aux = Reshape((N*N,emb_dim))(x_aux)
+        x_aux = Dense(out_dim, activation='softmax')(x_aux)
 
-    model = Model(inpt, x)
+    model_inputs = [inpt, mix_mask] if mix_token else inpt
+    model_outputs = [x_cls, x_aux] if aux_loss else x_cls
+    model = Model(model_inputs, model_outputs)
 
     return model
 
@@ -84,19 +95,9 @@ def positional_embedding(seq_len, model_dim):
     return PE
 
 
-def rand_crop(grid_size, lam):
-    W, H = grid_size
-    # take a little crop
-    cut_rate = np.sqrt(1. - lam)
-    cut_w = int(W*cut_rate)
-    cut_h = int(H*cut_rate)
-    cx = np.random.randint(W)
-    cy = np.random.randint(H)
-    x1 = np.clip(cx-cut_w//2, 0, W)
-    y1 = np.clip(cy-cut_h//2, 0, H)
-    x2 = np.clip(cx+cut_w//2, 0, W)
-    y2 = np.clip(cy+cut_w//2, 0, H)
-    return x1,y1, x2,y2
+def mix_tokens(args):
+    x, mix_mask = args
+    return x * mix_mask + K.reverse(x, axes=0) * (1-mix_mask)
 
 
 def ConvBN(x, filters, kernel_size, strides):
@@ -108,8 +109,12 @@ def ConvBN(x, filters, kernel_size, strides):
 
 if __name__ == '__main__':
 
-    model = LV_ViT()
+    model = LV_ViT(input_size=224, patch_size=16, emb_dim=384, mlp_dim=1152, out_dim=8,
+                   num_layers=16, num_heads=6, attn_drop=0., ffn_drop=0., residual_drop=0.1,
+                   residual_scale=2., mix_token=True, aux_loss=True)
     model.summary()
+    print(model.inputs)
+    print(model.outputs)
 
 
 
