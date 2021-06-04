@@ -245,6 +245,76 @@
 
 
 
+## swin
+    
+    official repo: https://github.com/microsoft/Swin-Transformer
+
+    swin family:
+    swin-T: (224,224), C=96, num_layers=[2,2,6,2], num_heads=[3,6,12,24]
+    swin-S: (224,224), C=96, num_layers=[2,2,18,2], num_heads=[3,6,12,24]
+    swin-B: (224,224) / (384,384), C=128, num_layers=[2,2,18,2], num_heads=[4,8,16,32]
+    swin-L: (224,224) / (384,384), C=196, num_layers=[2,2,18,2], num_heads=[6,12,24,48]
+
+    what's new in swin: 
+    * hierarchical: 一般ViT都是桶型结构，fp过程中resolution不变，浅层计算量不友好，而且不好应用于FPN及后续dense任务
+    * window attention: window比patch高一个level，将att分解成window-based global att和local att，减少计算量
+
+    positional embeddings:
+    * no pos: 目前为止仅发现Google的MLP-Mixer是不使用PE的，说是隐式地学到了
+    * abs pos: 大多数ViT的做法，基于input size计算一组1D/2D的固定值
+    * rel pos: 本文的做法，不加abs PE，但是在MSA的QKV softmax层里面添加bias
+
+    classification head:
+    * swin里面没有cls token，stage4 最终输出[b,H/32*W/32,8C]的token embeddings
+    * 对所有的token embeddings求平均，类似GAP，[b,8C]
+    * 然后送入linear classifier，[b,n_classes]
+
+    patch merging:
+    * 先是空间维度转换成特征维度
+    * 然后linear proj
+    * 比pooling保留的信息多
+
+    relative position index: 
+    * 用来描述window中任意两点的相对位置关系：[wh, wh]，两个wh分别表示window map上任意一点
+    * 初始相对距离度量分为h和w两个axis，range from [0,2h-1]和[0,2w-1]
+    # * 2-dim coords可以合并成1-dim：采用两个digit->两位数的转换方式
+    * shared among windows
+    * 常量
+
+    relative position bias: 
+    * 用来保存任意一对相对位置的position bias：[2h-1, 2w-1, n_heads]
+    * truncated normal distribution: 初始用截断的正态分布填充
+    * relative position index中保存的所有相对距离，都能在relative position bias找到一组bias: [wh,wh,n_heads]
+    * learnable
+
+    window attention:
+    * 将特征图分解成互不重叠的window，每个window包含M*M个patch
+    * 在每个windows内部做self-attention，每个window参数共享————window-based local attention
+    * window_size=7: 要求特征图尺寸要能整除7，否则pooling
+    * shifted-window: 
+        如果没有shifted-window，每个stage的感受野才2倍，不然都不变的
+        given window_size=M: 划分windows的时候不从左上角开始，而是wh各平移M//2
+        等价于把featuremap平移一部分然后正常partition
+        tf.manip.roll / torch.roll
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
+
 
 
 

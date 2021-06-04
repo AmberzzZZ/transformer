@@ -19,7 +19,7 @@ def LV_ViT(input_size=224, patch_size=16, emb_dim=384, mlp_dim=1152, out_dim=9,
     x = ConvBN(x, 64, kernel_size=3, strides=1)
     x = ConvBN(x, 64, kernel_size=3, strides=1)
     x = Conv2D(emb_dim, 8, strides=8, padding='same')(x)
-    N = (input_size//patch_size)
+    N = input_size//patch_size
 
     # mixtoken
     if mix_token:
