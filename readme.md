@@ -248,6 +248,12 @@
 ## swin
     
     official repo: https://github.com/microsoft/Swin-Transformer
+    keras version: https://github.com/keras-team/keras-io/blob/master/examples/vision/swin_transformers.py
+
+    related papers:
+    origin Swin: Swin Transformer: Hierarchical Vision Transformer using Shifted Windows
+    Swin for object detection: End-to-End Semi-Supervised Object Detection with Soft Teacher
+    Swin for segmentation: Swin-Unet: Unet-like Pure Transformer for Medical Image Segmentation
 
     swin family:
     swin-T: (224,224), C=96, num_layers=[2,2,6,2], num_heads=[3,6,12,24]

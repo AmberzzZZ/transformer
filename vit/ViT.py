@@ -1,10 +1,9 @@
 from keras.layers import Input, Conv2D, Reshape, Concatenate, add, Dropout, Dense, Lambda
 from MSA import MultiHeadAttention, FeedForwardNetwork, gelu
-from transformer import positional_embedding
 from LayerNormalization import LayerNormalization
 from keras.models import Model
 import keras.backend as K
-import tensorflow as tf
+import numpy as np
 
 
 def visionTransformer(input_size=224, patch_size=16, drop_rate=0.1, num_layers=12,
@@ -62,6 +61,18 @@ def encoder_block(x, hidden_dim=768, att_drop_rate=0., num_heads=12, mlp_dim=307
     x = add([inpt, x])
 
     return x
+
+
+def positional_embedding(seq_len, model_dim):
+    PE = np.zeros((seq_len, model_dim))
+    for i in range(seq_len):
+        for j in range(model_dim):
+            if j % 2 == 0:
+                PE[i, j] = np.sin(i / 10000 ** (j / model_dim))
+            else:
+                PE[i, j] = np.cos(i / 10000 ** ((j-1) / model_dim))
+    PE = K.constant(np.expand_dims(PE, axis=0))
+    return PE
 
 
 if __name__ == '__main__':

@@ -1,25 +1,23 @@
-from keras.layers import Input, Conv2D, Reshape, Concatenate, add, Dropout, Dense, Lambda, \
-                         BatchNormalization, ReLU, multiply, GlobalAveragePooling1D
-from MSA import MultiHeadAttention, FeedForwardNetwork, gelu
-from WMSA import WindowMultiHeadAttention
+from keras.layers import Input, Conv2D, Reshape, add, Dropout, Dense, Lambda, GlobalAveragePooling1D
+from WMSA import WindowMultiHeadAttention, FeedForwardNetwork, gelu
 from LayerNormalization import LayerNormalization
 from keras.models import Model
-from keras.layers import Layer
 import keras.backend as K
 import numpy as np
 import tensorflow as tf
 
 
-def SwinTransformer(input_size=224, patch_size=4, emb_dim=96, mlp_ratio=4, out_dim=1000, ape=False,
-                    num_layers=[2,2,6,2], num_heads=[3,6,12,24], window_size=7, qkv_bias=True,
+def SwinTransformer(input_size=224, patch_size=4, emb_dim=96, ape=False, n_classes=1000,    # in/out hypers
+                    num_layers=[2,2,6,2], num_heads=[3,6,12,24],                            # structual hypers
+                    window_size=7, qkv_bias=True, qk_scale=None, mlp_ratio=4,               # swin-block hypers
                     attn_drop=0., ffn_drop=0., residual_drop=0.2):
 
     inpt = Input((input_size, input_size, 3))
     assert input_size%7==0 and input_size%16==0, 'input_size can not be divided clean'
 
     # patch embedding
-    x = Conv2D(emb_dim, patch_size, strides=patch_size, padding='same')(inpt)
-    N = input_size//patch_size     # grid_size, s4
+    x = Conv2D(emb_dim, patch_size, strides=patch_size, padding='same')(inpt)    # (b,h/4,w/4,C)
+    N = input_size//patch_size        # grid_size
     x = Reshape((N*N, emb_dim))(x)
     x = LayerNormalization()(x)      # [b,T,D]
 
@@ -32,13 +30,14 @@ def SwinTransformer(input_size=224, patch_size=4, emb_dim=96, mlp_ratio=4, out_d
 
     # transformer stages
     n_stages = len(num_layers)
-    dbr = np.linspace(0, residual_drop, num=sum(num_layers))
+    dbr = np.linspace(0, residual_drop, num=sum(num_layers))    # drop block rate
     feature_size = N      # start from s4
     block_idx = 0
     for i in range(n_stages):
         merging = True if i<n_stages-1 else False
-        x = swin_block(x, emb_dim, feature_size, num_layers[i], num_heads[i], window_size, mlp_ratio, qkv_bias,
-                       attn_drop=0., ffn_drop=0., residual_drop=dbr[i], patch_merging=merging, idx=block_idx, stage=i)
+        x = basicStage(x, emb_dim, feature_size, num_layers[i], num_heads[i], window_size, mlp_ratio, qkv_bias,
+                       attn_drop=0., ffn_drop=0., residual_drop=dbr[sum(num_layers[:i]):sum(num_layers[:i+1])],
+                       patch_merging=merging, idx=block_idx, stage=i)
         emb_dim *= 2
         block_idx += num_layers[i]
         if merging:
@@ -46,21 +45,25 @@ def SwinTransformer(input_size=224, patch_size=4, emb_dim=96, mlp_ratio=4, out_d
     x = LayerNormalization()(x)     # [H/32*W/32,8C]
 
     # head
-    x = GlobalAveragePooling1D(data_format='channels_last')(x)
-    if out_dim:
-        x = Dense(out_dim, activation='softmax')(x)
+    x = GlobalAveragePooling1D(data_format='channels_last')(x)    # (b,8C)
+
+    if n_classes:
+        x = Dense(n_classes, activation='softmax')(x)
 
     model = Model(inpt, x)
 
     return model
 
 
-# swin block for each stage
-def swin_block(x, emb_dim, feature_size, depth, n_heads, window_size, mlp_ratio=4, qkv_bias=True,
-               attn_drop=0., ffn_drop=0., residual_drop=0., patch_merging=False, idx=None, stage=None):
+# alternative [swin_block + patch_merging] for each stage
+def basicStage(x, emb_dim, feature_size, depth, n_heads, window_size, mlp_ratio=4, qkv_bias=True,
+               attn_drop=0., ffn_drop=0., residual_drop=[], patch_merging=False, idx=None, stage=None):
+    assert depth==len(residual_drop)
+    # swin blocks
     for i in range(depth):
         x = SwinTransformerBlock(emb_dim, feature_size, n_heads, window_size, mlp_ratio, qkv_bias,
-                                 attn_drop, ffn_drop, residual_drop, idx=idx+i)(x)
+                                 attn_drop, ffn_drop, residual_drop[i], idx=idx+i)(x)
+    # downsampling
     if patch_merging:
         x = Lambda(PatchMerging, arguments={'feature_size': feature_size}, name='PatchMerging%d' % stage)(x)
     return x
@@ -75,20 +78,22 @@ class SwinTransformerBlock(Model):
         self.shift_size = window_size//2
 
         # W-MSA
-        self.wmsa = WindowMultiHeadAttention(emb_dim, n_heads, window_size, qkv_bias, attn_drop, ffn_drop)
-        self.ffn = FeedForwardNetwork(emb_dim*mlp_ratio, emb_dim, activation=gelu, drop_rate=ffn_drop)
-        self.res_drop1 = Dropout(residual_drop, noise_shape=(None, 1, 1))
-        self.res_drop2 = Dropout(residual_drop, noise_shape=(None, 1, 1))
         self.ln1 = LayerNormalization()
+        self.wmsa = WindowMultiHeadAttention(emb_dim, n_heads, window_size, qkv_bias, attn_drop, ffn_drop)
+        self.res_drop1 = Dropout(residual_drop, noise_shape=(None, 1, 1))
+
         self.ln2 = LayerNormalization()
+        self.ffn = FeedForwardNetwork(emb_dim*mlp_ratio, emb_dim, activation=gelu, drop_rate=ffn_drop)
+        self.res_drop2 = Dropout(residual_drop, noise_shape=(None, 1, 1))
 
         # SW-MSA
-        self.wmsa_s = WindowMultiHeadAttention(emb_dim, n_heads, window_size, qkv_bias, attn_drop, ffn_drop)
-        self.ffn_s = FeedForwardNetwork(emb_dim*mlp_ratio, emb_dim, activation=gelu, drop_rate=ffn_drop)
-        self.res_drop3 = Dropout(residual_drop, noise_shape=(None, 1, 1))
-        self.res_drop4 = Dropout(residual_drop, noise_shape=(None, 1, 1))
         self.ln3 = LayerNormalization()
+        self.wmsa_s = WindowMultiHeadAttention(emb_dim, n_heads, window_size, qkv_bias, attn_drop, ffn_drop)
+        self.res_drop3 = Dropout(residual_drop, noise_shape=(None, 1, 1))
+
         self.ln4 = LayerNormalization()
+        self.ffn_s = FeedForwardNetwork(emb_dim*mlp_ratio, emb_dim, activation=gelu, drop_rate=ffn_drop)
+        self.res_drop4 = Dropout(residual_drop, noise_shape=(None, 1, 1))
 
     def call(self, x):
         # input_shape: [b,T,D]
