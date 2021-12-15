@@ -120,8 +120,12 @@ class FeedForwardNetwork(Model):
         return x
 
     def compute_output_shape(self, input_shape):
-        B, N, _ = input_shape
-        return (B,N,self.model_size)
+        if len(input_shape)==4:
+            B, H, W, _ = input_shape
+            return (B,H,W,self.model_size)
+        else:
+            B, L, _ = input_shape
+            return (B,L,self.model_size)
 
 
 if __name__ == '__main__':
