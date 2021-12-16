@@ -7,8 +7,7 @@ from keras import constraints
 
 class LayerNormalization(Layer):
 
-    # given inputs: [b,(hwd),c], for each sample, compute norm over (hwdc)-dims
-    # currently only available for 1D-tensor
+    # given inputs: [b,(hwd),c], for each sample, compute norm over the feature-dim
 
     def __init__(self,
                  rescale=True,
@@ -35,7 +34,7 @@ class LayerNormalization(Layer):
 
     def build(self, input_shape):
         # rescale factor, for each sample, broadcast from last-dim
-        shape = input_shape[1:]
+        shape = (input_shape[-1], )
         if self.rescale:
             self.gamma = self.add_weight(
                 shape=shape,
@@ -54,9 +53,9 @@ class LayerNormalization(Layer):
         super(LayerNormalization, self).build(input_shape)
 
     def call(self, inputs, training=None):
-        mean = K.mean(inputs, axis=[1,2], keepdims=True)
+        mean = K.mean(inputs, axis=-1, keepdims=True)    # (b,(hwd),1)
         # norm
-        variance = K.var(inputs, axis=[1,2], keepdims=True)
+        variance = K.var(inputs, axis=-1, keepdims=True)
         outputs = (inputs - mean) / K.sqrt(variance + self.epsilon)
         # rescale
         outputs = self.gamma*outputs + self.beta
@@ -84,10 +83,19 @@ if __name__ == '__main__':
     from keras.layers import Input
     from keras.models import Model
 
-    x = Input((128,128,16))
+    x = Input((2,))
     y = LayerNormalization()(x)
 
     model = Model(x,y)
     model.summary()
 
+    print(y)
+
+    import numpy as np
+    x = np.array([[ 0., 10.],
+                   [20., 30.],
+                   [40., 50.],
+                   [60., 70.],
+                   [80., 90.]])
+    y = model.predict(x)
     print(y)

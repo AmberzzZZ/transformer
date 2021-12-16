@@ -1,4 +1,4 @@
-from keras.layers import Input, Conv2D, add, Dropout, Dense, Lambda, GlobalAveragePooling2D
+from keras.layers import Input, Conv2D, add, Dropout, Dense, Lambda, GlobalAveragePooling2D, Layer
 from WMSA import WindowMultiHeadAttention, FeedForwardNetwork, gelu
 from LayerNormalization import LayerNormalization
 from keras.models import Model
@@ -37,14 +37,16 @@ def SwinTransformer(input_shape=(224,224,3), patch_size=4, emb_dim=96, ape=False
         # pad on the top
         pad_l = pad_t = 0
         pad_b, pad_r = (window_size - H % window_size) % window_size, (window_size - W % window_size) % window_size
-        x = Lambda(lambda x: tf.pad(x, [[0,0],[pad_t, pad_b], [pad_l, pad_r], [0,0]]))(x)
+        # x = Lambda(lambda x: tf.pad(x, [[0,0],[pad_t, pad_b], [pad_l, pad_r], [0,0]]))(x)
+        x = Pad_HW(pad_t, pad_b, pad_l, pad_r)(x)
         H += pad_b
         W += pad_r
-        x = basicStage(x, emb_dim, (H,W), num_layers[i], num_heads[i], window_size, mlp_ratio, qkv_bias,
+        # WSA+SWSA: 2 blocks
+        x = basicStage(x, emb_dim, (H,W), num_layers[i]//2, num_heads[i], window_size, mlp_ratio, qkv_bias,
                          attn_drop=0., ffn_drop=0., residual_drop=dbr[sum(num_layers[:i]):sum(num_layers[:i+1])],
                          patch_merging=merging, idx=block_idx, stage=i)
         emb_dim *= 2
-        block_idx += num_layers[i]
+        block_idx += num_layers[i]//2
         if merging:
             H = (H+1) // 2
             W = (W+1) // 2
@@ -61,11 +63,26 @@ def SwinTransformer(input_shape=(224,224,3), patch_size=4, emb_dim=96, ape=False
     return model
 
 
+class Pad_HW(Layer):
+    def __init__(self, pad_t, pad_b, pad_l, pad_r,**kwargs):
+        super(Pad_HW, self).__init__(**kwargs)
+        self.pad_t = pad_t
+        self.pad_b = pad_b
+        self.pad_l = pad_l
+        self.pad_r = pad_r
+
+    def call(self, x):
+        return tf.pad(x, [[0,0],[self.pad_t, self.pad_b], [self.pad_l, self.pad_r], [0,0]])
+
+    def compute_output_shape(self, input_shape):
+        return (input_shape[0], input_shape[1]+self.pad_t+self.pad_b, input_shape[2]+self.pad_l+self.pad_r, input_shape[3])
+
+
 # alternative [swin_block + patch_merging] for each stage
 def basicStage(x, emb_dim, feature_shape, depth, n_heads, window_size, mlp_ratio=4, qkv_bias=True,
                attn_drop=0., ffn_drop=0., residual_drop=[], patch_merging=False, idx=None, stage=None):
-    assert depth==len(residual_drop)
-
+    # assert depth==len(residual_drop)
+    assert len(residual_drop) % 2 == 0
     # swin blocks
     for i in range(depth):
         x = SwinTransformerBlock(emb_dim, feature_shape, n_heads, window_size, mlp_ratio, qkv_bias,
@@ -73,7 +90,6 @@ def basicStage(x, emb_dim, feature_shape, depth, n_heads, window_size, mlp_ratio
     # downsampling
     if patch_merging:
         x = Lambda(PatchMerging, arguments={'feature_shape': feature_shape, 'emb_dim': emb_dim}, name='PatchMerging%d' % stage)(x)
-
 
     return x
 
@@ -125,11 +141,18 @@ class SwinTransformerBlock(Model):
         x = x + inpt
 
         # SWMSA block
+        window_mask = getWindowMask(self.feature_shape, self.window_size, self.shift_size)  # (1,H,W,1)
+        mask_windows = WindowPartition(window_mask, self.feature_shape, 1, self.window_size)   # (1,nW,7x7,1))
+        mask_windows = tf.reshape(mask_windows, (-1,self.window_size*self.window_size))   # (nW,7x7)
+        attn_mask = tf.expand_dims(mask_windows,axis=1) - tf.expand_dims(mask_windows,axis=2)   # (nW,7x7,7x7)
+        attn_mask = tf.where(attn_mask==0, tf.zeros_like(attn_mask), -tf.ones_like(attn_mask)*100)
+        attn_mask = tf.expand_dims(attn_mask, axis=1)    # (nW,1,7x7,7x7)
+
         inpt = x
         x = self.ln3(x)
         x = CyclicShift(x, self.feature_shape, self.emb_dim, self.shift_size)
         x = WindowPartition(x, self.feature_shape, self.emb_dim, self.window_size)   # [b,nW,local_L,D]
-        x = self.wmsa_s(x)
+        x = self.wmsa_s(x, mask=attn_mask)
         x = WindowReverse(x, self.feature_shape, self.emb_dim, self.window_size)      # [b,T,D]
         x = CyclicShift(x, self.feature_shape, self.emb_dim, -self.shift_size)
         x = self.res_drop3(x)
@@ -197,10 +220,30 @@ def PatchMerging(x, feature_shape, emb_dim):
     return x
 
 
+def getWindowMask(feature_shape, window_size, shift_size):
+
+    img = np.zeros((1,feature_shape[0],feature_shape[1],1))
+    h_slices = (slice(0,-window_size), slice(-window_size,-shift_size), slice(-shift_size,None))
+    w_slices = (slice(0,-window_size), slice(-window_size,-shift_size), slice(-shift_size,None))
+
+    cnt = 0
+    for h in h_slices:
+        for w in w_slices:
+            img[:,h,w,:] = cnt
+            cnt += 1
+
+    img = tf.constant(img, dtype=tf.float32)
+    return img
+
+
 if __name__ == '__main__':
 
-    model = SwinTransformer((448,1333,3))
+    model = SwinTransformer()
     model.summary()
+
+    x = Input((224,224,3))
+    y = model(x)
+    print(y)
 
 
 

@@ -1,4 +1,3 @@
-
 ## swin
     
     official repo: https://github.com/microsoft/Swin-Transformer
@@ -18,10 +17,15 @@
     what's new in swin: 
     * hierarchical: 一般ViT都是桶型结构，fp过程中resolution不变，浅层计算量不友好，而且不好应用于FPN及后续dense任务
     * window attention: window比patch高一个level，将att分解成window-based global att和local att，减少计算量
+        ** attn_mask
+        ** relative_positional_bias
     * activation: GeLU
 
-
     #### input embedding ####
+    input size: 
+    given window_size=7
+    因为有5倍下采样和window_split，所以input_size应该是32和7的倍数，所以default=224
+
     patch embeddings: 
     * 将input img转换成token sequence，每个token来自一个patch
     * patch到token的映射通过conv2d，kernel和stride都是patch_size，filter是embedding_dim
@@ -70,29 +74,37 @@
     * 然后送入linear classifier，[b,n_classes]
 
 
-
     relative position index: 
-    * 用来描述window中任意两点的相对位置关系：[wh, wh]，两个wh分别表示window map上任意一点
-    * 初始相对距离度量分为h和w两个axis，range from [0,2h-1]和[0,2w-1]
-    # * 2-dim coords可以合并成1-dim：采用两个digit->两位数的转换方式
-    * shared among windows
+    * fixed, given window_size=7
+    * local window内token的长度为7x7=49
+    * 用来描述window中任意两点的相对位置关系：[49, 49]
+        ** 第一步, 绝对位置->相对位置关系，[N,N,2], 2 for (delta_x, delta_y)
+        ** 第二步，平移，+ (7-1), to start from 0
+        ** 第三步, 2维->1维，[N,N,1], 1 for delta_x * 进位digit + delta_y
+    * shared among windows in a layer
     * 常量
 
     relative position bias: 
-    * 用来保存任意一对相对位置的position bias：[2h-1, 2w-1, n_heads]
+    * trainable, for each head, for each block, given window_size=7
+    * 相对位置关系的range是[-6,6]+6=[0,12]，进位digit是13
+    * 所以一维的相对位置关系的range是[0,13*13-1]
+    * 用来学习不同位置关系编码对应的value，shape是 (13*13,n_heads)
+    * 每次，从fixed [49,49,1]的relative mat里面取当前的位置关系值，作为当前的attn bias
     * truncated normal distribution: 初始用截断的正态分布填充
-    * relative position index中保存的所有相对距离，都能在relative position bias找到一组bias: [wh,wh,n_heads]
-    * learnable
 
     window attention:
     * 将特征图分解成互不重叠的window，每个window包含M*M个patch
     * 在每个windows内部做self-attention，每个window参数共享————window-based local attention
     * window_size=7: 要求特征图尺寸要能整除7，否则pooling
     * shifted-window: 
-        如果没有shifted-window，每个stage的感受野才2倍，不然都不变的
+        用来建立相邻windows之间的connection
         given window_size=M: 划分windows的时候不从左上角开始，而是wh各平移M//2
-        等价于把featuremap平移一部分然后正常partition
-        tf.manip.roll / torch.roll
+        等价于把featuremap平移一部分然后正常partition：tf.manip.roll / torch.roll
+        【重要！！！attn_mask！！！】平移了左/上的像素以后，右/下的windows不可避免地由不相邻patch拼接组成，
+        这种拼接window计算attention的时候要限定在自己的window area内
+
+    convert weights:
+    有个问题，layer norm的weights是与特征尺寸相关的，输入尺寸变了就mismatch了，是要interpolate吗？
 
 
 ## swin V2
@@ -126,6 +138,38 @@
 
 
 ## nnFormer
+
+
+
+## swin-rpn
+
+    先实现第一阶段，swinback+fpn+rpnhead
+
+    swinback
+    * features: 是每个level的swinblocks的输出
+    * add_norm: 输出之前再加一层layerNorm
+    * 输出4个level的feature：[x4,C], [x8,2C], [x16,4C], [x32,8C]
+
+    fpn
+    * feats: 1x1 conv对齐现有feature，3x3 s2 conv创建new level feature
+    * fusion: add
+    * transfer task: 3x3 conv
+    * conv with bias, norm=None, act=None
+    
+    rpn
+    * shared convs: 1个3x3 conv with relu
+    * heads: 1x1 conv, anchor-based
+
+    3-cls rpn VS one-stage-detector:
+    * light head
+    * rough supervision: L1 vs giou
+    * box的encoder方式
+
+
+
+
+
+    ** 待解决：multi-scale，训练时，预先定义几个固定的尺度，每个epoch随机选择一个尺度进行训练，keras静态图咋弄？
 
 
 

@@ -1,4 +1,4 @@
-from keras.layers import Input, Dense, Dropout, Activation
+from keras.layers import Input, Dense, Dropout, Activation, Layer
 from keras.models import Model
 from keras.activations import relu
 import tensorflow as tf
@@ -12,6 +12,10 @@ def gelu(x, approx=False):
         return 0.5 * x * (1 + K.tanh(K.sqrt(K.constant(2./math.pi)) * (x + 0.044715 * K.pow(x, 3))))
     else:
         return 0.5 * x * (1. + tf.math.erf(x / K.sqrt(K.constant(2.))))
+
+
+def bias_init(shape, dtype=None):
+    return tf.truncated_normal(shape, mean=0.0, stddev=.02, dtype=tf.float32)
 
 
 # Window based multi-head self attention with relative position bias(qkv-bias)
@@ -31,14 +35,16 @@ class WindowMultiHeadAttention(Model):
         self.mlp_drop = Dropout(ffn_drop)
 
         h = w = window_size
-        initial_value = tf.truncated_normal((2*h-1,2*w-1,num_heads), mean=0.0, stddev=.02)
-        self.relative_position_bias = tf.Variable(initial_value)  # trainable, [2h-1,2w-1,n_heads]
-        self.relative_position_index = get_relative_dis_mat(h,w)     # constant, list of distances
+        relative_bias_shape = ((2*h-1)*(2*w-1),num_heads)
+        # tf.truncated_normal(((2*h-1)*(2*w-1),num_heads), mean=0.0, stddev=.02)   # [2h-1*2w-1,n_heads]
+        # self.relative_position_bias = tf.Variable(initial_value, trainable=True)  # trainable, only for eager mode
+        self.relative_position_bias = TrainableVariable(relative_bias_shape, bias_init, trainable=True)
+        self.relative_position_index = get_relative_dis_mat(h,w)     # constant, relative indices
 
     def call(self, x, mask=None):
         # window-based self-attention
         # input_shape: [b,nW,L,D], shared among n_windows&batches
-        # mask_shape: [n_heads, L, L]
+        # mask_shape: [n_windows, L, L], connections among each window
         b = tf.shape(x)[0]
         nW = K.int_shape(x)[1]
         L = K.int_shape(x)[2]   # h*w
@@ -55,17 +61,16 @@ class WindowMultiHeadAttention(Model):
         score = matmul_qk / tf.math.sqrt(tf.cast(self.head_dim, tf.float32))
 
         # relative position bias: (L,L,num_heads)
-        relative_position_bias = tf.stack(tf.gather_nd(self.relative_position_bias, self.relative_position_index))
-        relative_position_bias = tf.transpose(tf.reshape(relative_position_bias, (L, L, -1)), (2,0,1))
+        relative_position_bias = self.relative_position_bias(x)
+        relative_position_bias = tf.gather(relative_position_bias, self.relative_position_index)   # (L,L,n_heads)
+        relative_position_bias = tf.transpose(tf.reshape(relative_position_bias, (L, L, -1)), (2,0,1))  # (n_heads,L,L)
 
         # shape: (b, nW, num_heads, L, L)
         score += relative_position_bias
 
         # shape: (b, nW, num_heads, L, L)
-        if isinstance(mask, list):
-            mask = mask[0]
         if mask is not None:
-            score += (1 - mask) * -1e9     # add mask=0 points with -inf, results in 0 in softmax
+            score += mask     # 0 pos & -100 for neg
 
         # softmax & dropout
         alpha = tf.nn.softmax(score)
@@ -85,15 +90,31 @@ class WindowMultiHeadAttention(Model):
 
 
 def get_relative_dis_mat(h,w):
+    # abs coords
     coord_w, coord_h = np.meshgrid(np.arange(w), np.arange(h))
     index = np.stack([coord_h,coord_w], axis=-1).reshape((-1,2))
+    # relative coords
     dis = index[:,None,:] - index[None,:,:]    # [hw,hw,2]
+    # shift
     dis[:,:,0] += h-1
     dis[:,:,1] += w-1
-    dis = np.reshape(dis, (-1,2))
-    # dis = dis[:,0]*(2*w-1) + dis[:,1]
-    dis = [tf.constant(i) for i in dis]
+    # fuse by digit
+    dis = dis[...,0]*(2*w-1) + dis[...,1]   # [hw,hw]
+    dis = tf.constant(dis)
     return dis
+
+
+class TrainableVariable(Layer):
+    def __init__(self, shape, initializer, trainable=True, **kargs):
+        super(TrainableVariable, self).__init__(**kargs)
+        self.a = self.add_weight(shape=shape, initializer=initializer, trainable=trainable,
+                                 name='relative_position_bias')
+
+    def call(self, x):
+        return self.a
+
+    def compute_output_shape(self, input_shape):
+        return self.a.shape
 
 
 # FFN layer
@@ -132,11 +153,21 @@ if __name__ == '__main__':
 
     # test MSA & FFN layer
     x = Input((16, 49, 10))   # [b,nW,L,D]
-    mask = Input((49,49))    # [D,D]
+    mask = Input((16,1,49,49))    # [nW,1,L,L]
     y = WindowMultiHeadAttention(32, 4, 7)(inputs=x, mask=mask)
     # y = WindowMultiHeadAttention(10, 2)(inputs=[y,y,y], mask=mask)
     # y = FeedForwardNetwork(16, 10)(y)
 
     model = Model([x,mask],y)
     model.summary()
+    for l in model.layers:
+        try:
+            for subl in l.layers:
+                print(subl.name)
+                print([i.shape for i in subl.get_weights()])
+        except:
+            continue
+    # dense1, qkv, with bias, (C,3C),(3C)
+    # relative bias, 
+    # dense2, fuse_heads, with_bias, (C,C),(C,)
 
