@@ -9,14 +9,14 @@
     Swin for segmentation: Swin-Unet: Unet-like Pure Transformer for Medical Image Segmentation
 
     swin family:
-    swin-T: (224,224), C=96, num_layers=[2,2,6,2], num_heads=[3,6,12,24]
-    swin-S: (224,224), C=96, num_layers=[2,2,18,2], num_heads=[3,6,12,24]
-    swin-B: (224,224) / (384,384), C=128, num_layers=[2,2,18,2], num_heads=[4,8,16,32]
-    swin-L: (224,224) / (384,384), C=196, num_layers=[2,2,18,2], num_heads=[6,12,24,48]
+    swin-T: (224,224), C=96, W=7, num_layers=[2,2,6,2], num_heads=[3,6,12,24], residual_drop=0.2
+    swin-S: (224,224), C=96, W=7, num_layers=[2,2,18,2], num_heads=[3,6,12,24], residual_drop=0.3
+    swin-B: (224,224) / (384,384), W=7/12, C=128, num_layers=[2,2,18,2], num_heads=[4,8,16,32], residual_drop=0.5
+    swin-L: (224,224) / (384,384), W=7/12, C=196, num_layers=[2,2,18,2], num_heads=[6,12,24,48]
 
     what's new in swin: 
     * hierarchical: 一般ViT都是桶型结构，fp过程中resolution不变，浅层计算量不友好，而且不好应用于FPN及后续dense任务
-    * window attention: window比patch高一个level，将att分解成window-based global att和local att，减少计算量
+    * window attention: window比patch高一个level，将att分解成window-based global att和local att，减少计算量，而且attention layer的sequence长度不随input size变化了，easy to transfer
         ** attn_mask
         ** relative_positional_bias
     * activation: GeLU
@@ -104,10 +104,39 @@
         这种拼接window计算attention的时候要限定在自己的window area内
 
     convert weights:
-    有个问题，layer norm的weights是与特征尺寸相关的，输入尺寸变了就mismatch了，是要interpolate吗？
+    有个问题，relative_position_bias是与window_size相关的，window尺寸改变就mismatch了，需要bi-cubic interpolation
+
+
+    ###### training details 在论文附录里 ######
+    ---- training ImageNet-1K ------
+    * AdamW
+    * 300 epochs / 20 linear warmup
+    * cosine decay learning rate scheduler: 1e-3, weight decay 0.05
+    * batch size 1024
+    * gradient clipping with a max norm of 1
+    * aug: RandAugment, Mixup, Cutmix, random erasing, but not repeated augmentation and EMA (no enhance)
+    ---- pretrain ImageNet-22K ------
+    * AdamW
+    * 60 epochs / 5 linear warm-up
+    * batch size 4096
+    * linear decay lr scheduler: 1e-3, weight decay 0.01
+    ---- finetuning ImageNet-1K ------
+    * 30 epochs
+    * batch size 1024
+    * constant lr 1e-5, weight decay 1e-8
+    * set stochastic depth ratio to 0.1
+
+
+    ###### init weights ######
+    源代码里对dense/LN进行了初始化
+    * dense: weight - trunc_normal(std=.02), bias - Constant(0)
+    * LN：bias - Constant(0), weight - Constant(1.)
+    * 对第一层的Conv2D没看到特殊初始化
 
 
 ## swin V2
+
+    scaling up
 
 
 ## swinUnet
@@ -164,10 +193,6 @@
     * light head
     * rough supervision: L1 vs giou
     * box的encoder方式
-
-
-
-
 
     ** 待解决：multi-scale，训练时，预先定义几个固定的尺度，每个epoch随机选择一个尺度进行训练，keras静态图咋弄？
 

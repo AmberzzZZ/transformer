@@ -29,8 +29,8 @@ class WindowMultiHeadAttention(Model):
         self.head_dim = emb_dim // num_heads
         self.window_size = window_size
 
-        self.QKV = Dense(3*emb_dim, use_bias=True)
-        self.dense = Dense(emb_dim)
+        self.QKV = Dense(3*emb_dim, use_bias=True, kernel_initializer=bias_init, bias_initializer='zeros')
+        self.dense = Dense(emb_dim, kernel_initializer=bias_init, bias_initializer='zeros')
         self.msa_drop = Dropout(attn_drop)
         self.mlp_drop = Dropout(ffn_drop)
 
@@ -121,8 +121,8 @@ class TrainableVariable(Layer):
 class FeedForwardNetwork(Model):
     def __init__(self, dff_size, model_size, activation=relu, drop_rate=0.):
         super(FeedForwardNetwork, self).__init__()
-        self.dense1 = Dense(dff_size, activation=activation)   # relu/gelu
-        self.dense2 = Dense(model_size)
+        self.dense1 = Dense(dff_size, activation=activation, kernel_initializer=bias_init, bias_initializer='zeros')   # relu/gelu
+        self.dense2 = Dense(model_size, kernel_initializer=bias_init, bias_initializer='zeros')
         if drop_rate:
             self.drop1 = Dropout(drop_rate)
             self.drop2 = Dropout(drop_rate)

@@ -1,5 +1,5 @@
 from keras.layers import Input, Conv2D, add, Dropout, Dense, Lambda, GlobalAveragePooling2D, Layer
-from WMSA import WindowMultiHeadAttention, FeedForwardNetwork, gelu
+from WMSA import WindowMultiHeadAttention, FeedForwardNetwork, gelu, bias_init
 from LayerNormalization import LayerNormalization
 from keras.models import Model
 import keras.backend as K
@@ -56,7 +56,7 @@ def SwinTransformer(input_shape=(224,224,3), patch_size=4, emb_dim=96, ape=False
     x = GlobalAveragePooling2D(data_format='channels_last')(x)    # (b,8C)
 
     if n_classes:
-        x = Dense(n_classes, activation='softmax')(x)
+        x = Dense(n_classes, activation='softmax', kernel_initializer=bias_init, bias_initializer='zeros')(x)
 
     model = Model(inpt, x)
 
