@@ -38,7 +38,7 @@ class WindowMultiHeadAttention(Model):
         relative_bias_shape = ((2*h-1)*(2*w-1),num_heads)
         # tf.truncated_normal(((2*h-1)*(2*w-1),num_heads), mean=0.0, stddev=.02)   # [2h-1*2w-1,n_heads]
         # self.relative_position_bias = tf.Variable(initial_value, trainable=True)  # trainable, only for eager mode
-        self.relative_position_bias = TrainableVariable(relative_bias_shape, bias_init, trainable=True)
+        self.relative_position_bias = RelativePositionBias(relative_bias_shape, bias_init, trainable=True)
         self.relative_position_index = get_relative_dis_mat(h,w)     # constant, relative indices
 
     def call(self, x, mask=None):
@@ -104,9 +104,9 @@ def get_relative_dis_mat(h,w):
     return dis
 
 
-class TrainableVariable(Layer):
+class RelativePositionBias(Layer):
     def __init__(self, shape, initializer, trainable=True, **kargs):
-        super(TrainableVariable, self).__init__(**kargs)
+        super(RelativePositionBias, self).__init__(**kargs)
         self.a = self.add_weight(shape=shape, initializer=initializer, trainable=trainable,
                                  name='relative_position_bias')
 

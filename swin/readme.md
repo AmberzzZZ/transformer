@@ -126,6 +126,9 @@
     * constant lr 1e-5, weight decay 1e-8
     * set stochastic depth ratio to 0.1
 
+    *** 我实际训练下来，感觉cosineLR对收敛不太友好，第一个cycle结束那个阶跃的lr把精度又给拉低了，
+    还有就是保存模型时候如果没保存优化器状态，reload进来又是一个全新的训练状态
+
 
     ###### init weights ######
     源代码里对dense/LN进行了初始化
