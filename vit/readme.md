@@ -1,10 +1,11 @@
 
 ## vision transformer (ViT)
     
+    paper: AN IMAGE IS WORTH 16X16 WORDS: TRANSFORMERS FOR IMAGE RECOGNITION AT SCALE
     官方repo: https://github.com/google-research/vision_transformer
     third repo: https://github.com/lucidrains/vit-pytorch
 
-    task: supervised classification
+    task: supervised classification, visual版的BERT
 
     inputs: 将图片切成不重叠的16x16块，然后flatten，然后用learnable的线性层降维，然后添加cls token，然后加上PE
         * image patch sequence & trainable linear projection
@@ -30,7 +31,8 @@
 
     LN:
         https://www.geek-book.com/src/docs/keras/keras/keras.io/api/layers/normalization_layers/layer_normalization/index.html
-        trainable的情况下，given inputs [b,(hwd),c]，参数量是2*(hwd)*c，所以用在1D比较正常一点
+        对该层的所有神经元求mean & var，所以mean & var的shape都是(b,hwd,1)
+        trainable的情况下，given inputs [b,(hwd),c]，参数量是weight & bias (c,)
 
 
     子类继承模型：class ***(keras.Model)
@@ -53,6 +55,7 @@
 
 ## LV-ViT
 
+    paper: Token Labeling: Training an 85.4% Top-1 Accuracy Vision Transformer with 56M Parameters on ImageNet
     官方repo: https://github.com/zihangJiang/TokenLabeling
     
     patch embedding
@@ -89,6 +92,40 @@
     * dropout = 0.
     * dropconnect = .1
     * randAug, mixup
+
+
+## MAE
+    
+    paper: Masked Autoencoders Are Scalable Vision Learners
+    official repo: https://github.com/facebookresearch/mae, torch, 据说有个tf/tpu版本，但是没开源
+    3rd keras re-implementation: https://keras.io/examples/vision/masked_image_modeling/
+
+    是一种reconstruct-based的自监督训练方法，用于提升encoder(backbone)模型的泛化性能
+
+    -------- encoder-decoder ---------
+    * encoder就是我们要预训练的模型，如ViT，输入是random sampled patches，[b,N1,emb_dim]
+    * decoder是负责重建的模块，输入是full set patches(encoded & masked)，[b,N,emb_dim]
+    * mask_ratio=.75，N1=0.25N
+    * cls_token
+    * mask_token
+    * 都是self-attention block
+
+    ------ input proj -------
+    RandomMask
+    trainable cls token
+    constant sin2d PE
+
+    --------- loss --------
+    per-pixel MSE: pixel是patch pixel
+
+
+    
+
+
+
+
+
+
 
 
 

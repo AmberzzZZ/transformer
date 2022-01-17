@@ -77,11 +77,12 @@ class MultiHeadAttention(Model):
         return (B,N,self.model_size)
 
 
-# FFN layer
+# FFN layer: dense-relu-drop-dense-drop
 class FeedForwardNetwork(Model):
-    def __init__(self, dff_size, model_size, activation=relu, drop_rate=0.):
+    def __init__(self, model_size, mlp_ratio=4., activation=relu, drop_rate=0.):
         super(FeedForwardNetwork, self).__init__()
-        self.dense1 = Dense(dff_size, activation=activation)   # relu/gelu
+        hidden_size = int(model_size/mlp_ratio)
+        self.dense1 = Dense(hidden_size, activation=activation)   # relu/gelu
         self.dense2 = Dense(model_size)
         if drop_rate:
             self.drop1 = Dropout(drop_rate)
