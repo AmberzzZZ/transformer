@@ -1,5 +1,5 @@
 # masked autoencoder with VisionTransformer backbone
-from keras.layers import Input, Conv2D, Reshape, Lambda, Concatenate, Layer, add, Dropout, Dense
+from keras.layers import Input, Conv2D, Reshape, Lambda, Concatenate, Layer, Dropout, Dense
 from keras.models import Model
 from keras.initializers import RandomNormal
 from LayerNormalization import LayerNormalization
@@ -11,7 +11,7 @@ import math
 
 
 def MAE_VIT(input_shape=(224,224,3), patch_size=16, mask_ratio=.75, use_cls_token=True,
-            emb_dim=1024, depth=24, n_heads=16, mlp_ratio=4,
+            emb_dim=768, depth=12, n_heads=16, mlp_ratio=4,
             decoder_emb_dim=512, decoder_depth=8, decoder_n_heads=16,
             norm_pix_loss=False,):
 
@@ -20,7 +20,7 @@ def MAE_VIT(input_shape=(224,224,3), patch_size=16, mask_ratio=.75, use_cls_toke
     # into patch embeddings
     h, w = input_shape[0]//patch_size, input_shape[1]//patch_size
     N = h*w
-    x = Conv2D(emb_dim, patch_size, strides=patch_size, padding='same')(inpt)
+    x = Conv2D(emb_dim, patch_size, strides=patch_size, padding='same', name='proj')(inpt)
     x = Reshape((N, emb_dim))(x)     # [b,N,emb_dim]
 
     # encoder pe: constant, sincos embedding, with cls token
@@ -260,8 +260,3 @@ if __name__ == '__main__':
     x = np.random.uniform(0,1,(16,224,224,3))
     y = model.predict(x)
     print(y.shape)
-
-
-
-
-

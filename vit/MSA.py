@@ -21,9 +21,7 @@ class MultiHeadAttention(Model):
         self.model_size = model_size
         self.num_heads = num_heads
         self.head_size = model_size // num_heads
-        self.WQ = Dense(model_size, name="dense_query")
-        self.WK = Dense(model_size, name="dense_key")
-        self.WV = Dense(model_size, name="dense_value")
+        self.WQKV = Dense(model_size*3, name='dense_qkv')
         self.dense = Dense(model_size)
         self.msa_drop = Dropout(attn_drop)
         self.mlp_drop = Dropout(ffn_drop)
@@ -36,9 +34,7 @@ class MultiHeadAttention(Model):
         batch_size = tf.shape(query)[0]
 
         # shape: (batch, maxlen, model_size)
-        query = self.WQ(query)
-        key = self.WK(key)
-        value = self.WV(value)
+        query,key,value = tf.split(self.WQKV(query), 3, axis=-1)
 
         def _split_heads(x):
             x = tf.reshape(x, shape=[batch_size, -1, self.num_heads, self.head_size])
@@ -81,7 +77,7 @@ class MultiHeadAttention(Model):
 class FeedForwardNetwork(Model):
     def __init__(self, model_size, mlp_ratio=4., activation=relu, drop_rate=0.):
         super(FeedForwardNetwork, self).__init__()
-        hidden_size = int(model_size/mlp_ratio)
+        hidden_size = int(model_size*mlp_ratio)
         self.dense1 = Dense(hidden_size, activation=activation)   # relu/gelu
         self.dense2 = Dense(model_size)
         if drop_rate:
