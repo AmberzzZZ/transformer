@@ -9,7 +9,10 @@ model_weights = torch_model['model']   # OrderedDict
 # trainable cls_token: (1,1,768)
 cls_token = {k:v for k,v in model_weights.items() if 'cls_token' in k}
 print(cls_token.keys(), len(cls_token.keys()))
-# encoder_pe: (1,197,768)
+
+# trainable encoder_pe: (1,197,768)
+pos_embed = {k:v for k,v in model_weights.items() if 'pos_embed' in k}
+print(pos_embed.keys(), len(pos_embed.keys()))
 
 # patch_embed: conv weight & bias
 patch_embed = {k:v for k,v in model_weights.items() if 'patch_embed.proj' in k}
@@ -55,7 +58,7 @@ emb_dim = 768
 # mae_model.save_weights("weights/mae_vit_base.h5")
 
 vit_model = VIT(input_shape=(224,224,3), n_classes=1000, patch_size=16, use_cls_token=True,
-                emb_dim=768, depth=12, n_heads=16, mlp_ratio=4,
+                emb_dim=768, depth=12, n_heads=12, mlp_ratio=4,
                 att_drop_rate=0., drop_rate=0.1)
 for layer in vit_model.layers:
     if not layer.weights:
@@ -66,12 +69,16 @@ for layer in vit_model.layers:
         torch_weights = [np.transpose(v,(2,3,1,0)) if 'weight' in k else v for k,v in patch_embed.items()]
         layer.set_weights(torch_weights)
 
-    if 'add_token_1' in layer.name:   # cls_token / mask_token
+    if 'cls_token' in layer.name:   # cls_token
         torch_weights = [v for k,v in cls_token.items()]
         layer.set_weights(torch_weights)
 
-    if 'vitattentionblock' in layer.name:
-        idx = int(layer.name.strip('vitattentionblock_'))
+    if 'encoder_pe' in layer.name:  # encoder pe
+        torch_weights = [v for k,v in pos_embed.items()]
+        layer.set_weights(torch_weights)
+
+    if 'vitencoderblock' in layer.name:   # [vitencoderblock/vitattentionblock]
+        idx = int(layer.name.strip('vitencoderblock_'))
         if idx>=vit_depth:   # decoder block
             continue
         torch_weights = [np.transpose(v,(1,0)) if len(v.shape)>1 else v for k,v in blocks.items() if 'blocks.%d'%idx in k]

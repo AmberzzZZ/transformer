@@ -11,7 +11,7 @@ class LayerNormalization(Layer):
 
     def __init__(self,
                  rescale=True,
-                 epsilon=1e-5,
+                 epsilon=1e-6,
                  gamma_initializer='ones',
                  beta_initializer='zeros',
                  gamma_regularizer=None,

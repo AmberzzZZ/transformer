@@ -57,7 +57,7 @@ class MultiHeadAttention(Model):
             score += (1 - mask) * -1e9     # add mask=0 points with -inf, results in 0 in softmax
 
         # softmax & dropout
-        alpha = tf.nn.softmax(score)
+        alpha = tf.nn.softmax(score)    # [b,N,N]
         alpha = self.msa_drop(alpha)
 
         context = tf.matmul(alpha, value)
