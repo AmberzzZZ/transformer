@@ -38,7 +38,6 @@ class EfficientMSA(Model):
     def call(self, x, mask=None):
         # input: [b,hw,c]
         inpt_h, inpt_w = self.feature_shape
-        # split heads
         q = tf.transpose(Reshape((inpt_h*inpt_w, self.num_heads,self.emb_dim//self.num_heads))(self.dense_q(x)), (0,2,1,3))   # [b,nH,hw,c/nH]
         if self.sr_ratio>1:
             # narrow the hw-dim
@@ -47,11 +46,10 @@ class EfficientMSA(Model):
             x_ = self.sr(x_)    # [b,hw/rr,c]
             x_ = self.norm(x_)
             narrow_h, narrow_w = int(x_.shape[1]), int(x_.shape[2])
-            # -1: inpt_h
             kv = tf.transpose(Reshape((narrow_h*narrow_w, 2, self.num_heads,self.emb_dim//self.num_heads))(self.dense_kv(x_)), (2,0,3,1,4))   # [2,b,nH,hw,c/nH]
         else:
             kv = tf.transpose(Reshape((inpt_h*inpt_w, 2, self.num_heads,self.emb_dim//self.num_heads))(self.dense_kv(x)), (2,0,3,1,4))   # [2,b,nH,hw,c/nH]
-        k, v = kv[0], kv[1]
+        k, v = kv[0], kv[1]  # [b,nH,Lk,c]
 
         # qk similarity, q [b,nH,Lq,C], k [b,nH,Lk,C]
         matmul_qk = tf.matmul(q, k, transpose_b=True)   # [b,nH,Lq,Lk]
@@ -61,14 +59,17 @@ class EfficientMSA(Model):
 
         # weighted sum: v [b,nH,Lk,C]
         attn = tf.matmul(attn, v)    # [b,nH,Lq,C]
-        attn = Reshape((inpt_h*inpt_w,self.emb_dim))(tf.transpose(attn, (0,2,1,3)))    # [b,Lq,nH*C]
-        x = self.proj(x)
+        attn = tf.transpose(attn, (0,2,1,3))   # [b,Lq,nH,c]
+        attn = Reshape((inpt_h*inpt_w,self.emb_dim))(attn)    # [b,Lq,nH*c]
+
+        # linear
+        x = self.proj(attn)
         x = self.proj_drop(x)
 
         return x
 
     def compute_output_shape(self, input_shape):
-        return input_shape
+        return input_shape[:2] + (self.emb_dim,)
 
 
 class EfficientMLP(Model):
@@ -107,11 +108,23 @@ class EfficientMLP(Model):
 if __name__ == '__main__':
 
     from keras.layers import Input
+    from keras.models import Model
+    import numpy as np
 
     x = Input((196,256))
-    y = EfficientMSA((14,14), emb_dim=256, num_heads=8, sr_ratio=2, attn_drop=0., proj_drop=0., qkv_bias=True, qkv_scale=None)(x)
+    y = EfficientMSA((14,14), emb_dim=256, num_heads=8, sr_ratio=1, attn_drop=0., proj_drop=0., qkv_bias=True, qkv_scale=None)(x)
     print(y)
-    y = EfficientMLP((14,14), emb_dim=256, mlp_ratio=4, drop_rate=0.)(x)
-    print(y)
+    # y = EfficientMLP((14,14), emb_dim=256, mlp_ratio=4, drop_rate=0.)(x)
+    # print(y)
+
+    model = Model(x,y)
+    model.compile('sgd', loss='mean_squared_error')
+
+    X = np.random.uniform(0, 1, (4,196,256))
+    Y = np.random.uniform(0, 1, (4,196,256))
+    model.fit(X,Y,epochs=4)
+
+
+
 
 
