@@ -90,7 +90,7 @@ def basicStage(x, emb_dim, feature_shape, depth, n_heads, window_size, mlp_ratio
                                  attn_drop, ffn_drop, residual_drop[i], idx=idx+i)(x)
     # downsampling
     if patch_merging:
-        x = PatchMerging(feature_shape, emb_dim, stage_idx=idx+i)(x)
+        x = PatchMerging(feature_shape, emb_dim, stage_idx=stage)(x)
 
     return x
 
@@ -218,7 +218,7 @@ class PatchMerging(Model):
             self.use_pad = True
             self.pad = Pad_HW(0, pad_h, 0, pad_w)
         self.ln = LayerNormalization()
-        self.dense = Dense(2*emb_dim, use_bias=False)
+        self.dense = Dense(2*emb_dim, use_bias=False, kernel_initializer=bias_init)
 
         self.feature_shape = feature_shape
         self.emb_dim = emb_dim
@@ -265,9 +265,23 @@ if __name__ == '__main__':
     model = SwinTransformer()
     model.summary()
 
-    x = Input((224,224,3))
-    y = model(x)
-    print(y)
+    # model zoo
+    swinT = SwinTransformer(input_shape=(224,224,3), patch_size=4, emb_dim=96, n_classes=1000,
+                            num_layers=[2,2,6,2], num_heads=[3,6,12,24], window_size=7,
+                            residual_drop=0.2)
+
+    swinS = SwinTransformer(input_shape=(224,224,3), patch_size=4, emb_dim=96, n_classes=1000,
+                            num_layers=[2,2,18,2], num_heads=[3,6,12,24], window_size=7,
+                            residual_drop=0.3)
+
+    swinB = SwinTransformer(input_shape=(224,224,3), patch_size=4, emb_dim=128, n_classes=1000,
+                            num_layers=[2,2,18,2], num_heads=[4,8,16,32], window_size=7,
+                            residual_drop=0.5)
+
+    swinL = SwinTransformer(input_shape=(224,224,3), patch_size=4, emb_dim=196, n_classes=1000,
+                            num_layers=[2,2,18,2], num_heads=[6,12,24,48], window_size=7,
+                            residual_drop=0.5)
+
 
 
 

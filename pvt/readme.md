@@ -53,6 +53,13 @@
         - seg head：conv
 
 
+    ********* training settings *********
+    - AdamW, lr=2e-4,  weight_decay=1e-4
+    - LR scheduler: poly, power=0.9, min_lr=0.0, lr_factor=(1-epoch/step)**power
+
+
+
+
 
 
 

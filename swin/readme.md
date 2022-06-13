@@ -1,5 +1,5 @@
 ## swin
-    
+
     official repo: https://github.com/microsoft/Swin-Transformer
     keras version: https://github.com/keras-team/keras-io/blob/master/examples/vision/swin_transformers.py
 
@@ -14,7 +14,7 @@
     swin-B: (224,224) / (384,384), W=7/12, C=128, num_layers=[2,2,18,2], num_heads=[4,8,16,32], residual_drop=0.5
     swin-L: (224,224) / (384,384), W=7/12, C=196, num_layers=[2,2,18,2], num_heads=[6,12,24,48]
 
-    what's new in swin: 
+    what's new in swin:
     * hierarchical: 一般ViT都是桶型结构，fp过程中resolution不变，浅层计算量不友好，而且不好应用于FPN及后续dense任务
     * window attention: window比patch高一个level，将att分解成window-based global att和local att，减少计算量，而且attention layer的sequence长度不随input size变化了，easy to transfer
         ** attn_mask
@@ -22,11 +22,11 @@
     * activation: GeLU
 
     #### input embedding ####
-    input size: 
+    input size:
     given window_size=7
     因为有5倍下采样和window_split，所以input_size应该是32和7的倍数，所以default=224
 
-    patch embeddings: 
+    patch embeddings:
     * 将input img转换成token sequence，每个token来自一个patch
     * patch到token的映射通过conv2d，kernel和stride都是patch_size，filter是embedding_dim
     * 再reshape，就是(b,L,D)的token sequence了，L是patch_num，D是embedding_dim
@@ -74,7 +74,7 @@
     * 然后送入linear classifier，[b,n_classes]
 
 
-    relative position index: 
+    relative position index:
     * fixed, given window_size=7
     * local window内token的长度为7x7=49
     * 用来描述window中任意两点的相对位置关系：[49, 49]
@@ -84,7 +84,7 @@
     * shared among windows in a layer
     * 常量
 
-    relative position bias: 
+    relative position bias:
     * trainable, for each head, for each block, given window_size=7
     * 相对位置关系的range是[-6,6]+6=[0,12]，进位digit是13
     * 所以一维的相对位置关系的range是[0,13*13-1]
@@ -96,7 +96,7 @@
     * 将特征图分解成互不重叠的window，每个window包含M*M个patch
     * 在每个windows内部做self-attention，每个window参数共享————window-based local attention
     * window_size=7: 要求特征图尺寸要能整除7，否则pooling
-    * shifted-window: 
+    * shifted-window:
         用来建立相邻windows之间的connection
         given window_size=M: 划分windows的时候不从左上角开始，而是wh各平移M//2
         等价于把featuremap平移一部分然后正常partition：tf.manip.roll / torch.roll
@@ -139,11 +139,23 @@
 
 ## swin V2
 
-    scaling up
+    几个关注项：
+    * scaling up：the bigger the better
+    * instability issue：residual path上的值加到id path上会导致大模型不稳定，提出post-norm，在add之前norm residual value
+    * transfer：原来的PE切换到其他resolution会掉点，设计了新的PE————log-spaced continous position bias (Log-CPB)
+
+
+
+
+
+    代码上看主要区别就在于WindowAttention里面
+    - 多了个relative_coords_table参数，positional embeeding有重定义
+    - 多了个logit_scale，QK vector的归一化值有重定义
+
 
 
 ## swinUnet
-    
+
     pytorch official: https://github.com/HuCaoFighting/Swin-Unet
 
     bottleneck可以看作swin encoder的stage4
@@ -173,9 +185,23 @@
 
 
 
-## swin-rpn
+## swin down-stream task1: semanic segmentation
 
-    先实现第一阶段，swinback+fpn+rpnhead
+    swin使用UperNet作为base framework进行语义分割
+
+    * UPerNet: backbone+FPN(-PPM)+heads, standard FCN
+    * swin version:
+        ** 官方版本configs/base/models/upernet_swin.py,
+        ** backbone用swin transformer
+        ** decode_head: mmseg/decode_heads/uper_head.py, FPN+PPM+fusion head, FPN是(lateral conv, bilinear upsamp, pair-wise add, out conv), fusion head([P2,P3,P4,P5], bilinear upsamp to P2, concat, out convs)
+        ** auxiliary_head: mmseg/decode_heads/fcn_head.py, 这里面的实现是(P3x8->convs+out conv), 不知道用这个x8map做啥
+
+
+## swin down-stream task2: object detection
+
+    swin使用二阶段架构进行目标检测，用swin-back替换之前的CNN-back
+
+    先实现第一阶段，swin-rpn: swinback+fpn+rpnhead
 
     swinback
     * features: 是每个level的swinblocks的输出
@@ -187,7 +213,7 @@
     * fusion: add
     * transfer task: 3x3 conv
     * conv with bias, norm=None, act=None
-    
+
     rpn
     * shared convs: 1个3x3 conv with relu
     * heads: 1x1 conv, anchor-based
@@ -198,6 +224,31 @@
     * box的encoder方式
 
     ** 待解决：multi-scale，训练时，预先定义几个固定的尺度，每个epoch随机选择一个尺度进行训练，keras静态图咋弄？
+
+
+
+## SimMIM
+
+    official repo: https://github.com/microsoft/SimMIM
+
+
+
+## visualization
+
+    暂时没找到现成的，我的方案：
+    transformer的similarity weight是softmax之后那个mat score，but in window-based situation？
+    - given scores: [b,nWinH,nWinW,nH,window_size,window_size]
+    - among windows [nWinH,nWinW]：拼接
+    - among maps / shifted maps：一个是global att，一个是masked global att，覆盖的部分计算平均
+    - among multi-heads [nH]：代表不同特征，应该分开看
+    - cross layers：不同尺度，分开看
+
+
+
+
+
+
+
 
 
 
