@@ -4,6 +4,7 @@ from LayerNormalization import LayerNormalization
 from keras.layers import Input, Conv2D, Reshape, Layer, Lambda, Dropout
 from keras.initializers import TruncatedNormal
 from keras.models import Model
+import keras.backend as K
 import tensorflow as tf
 import numpy as np
 
@@ -12,16 +13,19 @@ def SimMIM(input_shape=(192,192,3), patch_size=4, emb_dim=128, encoder_stride=32
            num_layers=[2,2,18,2], num_heads=[4,8,16,32], window_size=6,
            drop_rate=0., att_drop_rate=0., drop_path_rate=0.):
 
-    # inputs: img [b,h,w,3] & mask [b,h/s,w/s]
+    # inputs: img [b,h,w,3] & mask [b,h/s,w/s,1]
     inpt = Input(input_shape)
-    mask = Input((input_shape[0]//patch_size, input_shape[1]//patch_size))
+    mask = Input((input_shape[0]//patch_size, input_shape[1]//patch_size,1))   # x32
 
     # into embeddings
-    x = Conv2D(emb_dim, patch_size, strides=patch_size, padding='same')(inpt)  # [b,h/s,w/s,128]
+    x = Conv2D(emb_dim, patch_size, strides=patch_size, padding='same')(inpt)  # [b,h/4,w/4,128]
     feat_h, feat_w = int(x.shape[1]), int(x.shape[2])
     x = Reshape((feat_h*feat_w, emb_dim))(x)
-    flatten_mask = Reshape((feat_h*feat_w, 1))(mask)
-    mask_tokens = MaskToken(emb_dim)(x)    # [b,hw/ss,128]
+    factor = encoder_stride // patch_size
+    flatten_mask = Lambda(tf.tile, arguments={'multiples': [1,factor,factor,1]})(mask)
+    # flatten_mask = Lambda(tf.image.resize_nearest_neighbor, arguments={'size': (feat_h,feat_w)})(mask)
+    flatten_mask = Reshape((feat_h*feat_w, 1))(flatten_mask)
+    mask_tokens = MaskToken(emb_dim)(x)    # [b,L,128]
 
     # masking: x = (1-mask) * x + mask * mask_tokens
     x = Lambda(lambda x: (1-x[2])*x[0]+x[2]*x[1])([x,mask_tokens,flatten_mask])
@@ -52,13 +56,26 @@ def SimMIM(input_shape=(192,192,3), patch_size=4, emb_dim=128, encoder_stride=32
     # final norm
     x = LayerNormalization()(x)   # [b,h/32,w/32, 128*8]
 
-    # linear head
+    # linear head: patch RGB predictions
     x = Conv2D(encoder_stride*encoder_stride*3, kernel_size=1, strides=1)(x)   # [b,h/32,w/32,32*32*3]
-    x = Lambda(PixelShuffle, arguments={'encoder_stride': encoder_stride})(x)   # [b,h,w,3]
+    x = Lambda(PixelShuffle, arguments={'encoder_stride': encoder_stride}, name='PixelShuffle')(x)   # [b,h,w,3]
 
-    model = Model([inpt,mask], x)
+    # l1 loss on masked region
+    loss = Lambda(loss_mim, arguments={'encoder_stride': encoder_stride}, name='loss')([inpt,x,mask])   # [b,1]
+
+    model = Model([inpt,mask], loss)
 
     return model
+
+
+def loss_mim(args, encoder_stride=32):
+    # inpt/x: [b,h,w,3], mask: [b,hs,ws,1]
+    inpt, x, mask = args
+    h, w = map(int, inpt.shape[1:3])
+    mask = tf.image.resize_nearest_neighbor(mask, size=(h,w))
+    l1_loss = K.abs(inpt-x)
+    mean_l1 = K.sum(l1_loss*mask, axis=(1,2,3)) / K.sum(mask, axis=(1,2,3)) / 3.   # [b,]
+    return tf.expand_dims(mean_l1, axis=1)   # [b,1]
 
 
 def PixelShuffle(x, encoder_stride=32):

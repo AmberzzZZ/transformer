@@ -57,6 +57,42 @@
     - mean of L1 on mask pixels
 
 
+    ********** hypers **********
+    - swinB：input 192x192，window size=6
+    - dataset：ImageNet-1K，a light data augmentation (random resize cropping/random flipping /color normalization)
+    - AdamW：weight decay=0.05，beta=[0.9,0.999]
+    - cosine LR scheduler：100 epochs (warmup 10 ep)，baseLR=8e-4
+    - batch size：2048
+    - random masking：mask ratio=0.6，mask patch size=32
+
+
+    ********** grad_norm **********
+    配置文件里面没有CLIP_GRAD参数，所以没有做梯度截断
+    torch.nn.utils.clip_grad_norm_(params, max_norm, norm_type=2.0): 在对传入参数进行clip_by_global_norm以后，返回the Total norm
+    源代码用默认自定义的utils.py/get_grad_norm：norm_type=2，计算了所有梯度的global norm，只用来输出没有真正进行梯度截断，用于观测训练状况
+
+
+    ********** a light data augmentation **********
+    - random resize cropping with scale range of [0.67, 1]
+    - a aspect ratio range of [3/4, 4/3]
+    - a random flipping
+    - a color normalization steps
+
+
+    初步实验下来发现模型输出棋盘格:
+    - 因为pixel recover是通过reshape得到的，每个feature pixel负责一个x32的patch
+    - 邻接patch的信息这个咋弄？
+
+
+
+
+## finetuning settings
+    - AdamW、batch size、masking 参数与pretrain一致
+    - cosine LR：baseLR=5e-3
+    - a stochastic depth rate：0.1
+    - a layer-wise learning rate decay：0.9
+    - strong data augmentation：RandAug，Mixup，Cutmix，label smoothing，random erasing
+
 
 
 
